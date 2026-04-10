@@ -8,8 +8,44 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
+  id            String         @id @default(uuid())
+  email         String         @unique
+  password      String
+  createdAt     DateTime       @default(now())
+  subscriptions Subscription[]
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PENDING
+}
+
+model Plan {
+  id            String         @id @default(uuid())
+  name          String
+  description   String?
+  price         Float
+  currency      String         @default("INR")
+  interval      String
+  createdAt     DateTime       @default(now())
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id        String             @id @default(uuid())
+  userId    String
+  planId    String
+  status    SubscriptionStatus @default(ACTIVE)
+  startDate DateTime           @default(now())
+  endDate   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan Plan @relation(fields: [planId], references: [id])
+
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId])
 }
