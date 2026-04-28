@@ -10,6 +10,7 @@ import { LoginDto } from './dto/login.dto';
 import { JwtService } from '@nestjs/jwt';
 import { RefreshToken } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import type { Response } from 'express';
 
 @Injectable()
 export class AuthService {
@@ -44,7 +45,7 @@ export class AuthService {
     return user;
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, res: Response) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
@@ -64,9 +65,19 @@ export class AuthService {
     await this.revokeAllRefreshTokens(user.id);
     await this.storeRefreshToken(user.id, refreshToken);
 
-    return {
+    res.cookie(
+      'access_token',
       accessToken,
+      this.getCookieOptions(15 * 60 * 1000),
+    );
+
+    res.cookie(
+      'refresh_token',
       refreshToken,
+      this.getCookieOptions(7 * 24 * 60 * 60 * 1000),
+    );
+
+    return {
       user: {
         id: user.id,
         email: user.email,
@@ -74,7 +85,11 @@ export class AuthService {
     };
   }
 
-  async logout(refreshToken: string) {
+  async logout(refreshToken: string, res: Response) {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token is missing');
+    }
+
     const { matchedToken } = await this.findMatchingRefreshToken(refreshToken);
 
     await this.prisma.refreshToken.update({
@@ -84,10 +99,19 @@ export class AuthService {
       },
     });
 
+    res.clearCookie('access_token', this.getCookieOptions(15 * 60 * 1000));
+    res.clearCookie(
+      'refresh_token',
+      this.getCookieOptions(7 * 24 * 60 * 60 * 1000),
+    );
+
     return { message: 'Logged out successfully' };
   }
 
-  async refresh(refreshToken: string) {
+  async refresh(refreshToken: string, res: Response) {
+    if (!refreshToken) {
+      throw new UnauthorizedException('Refresh token is missing');
+    }
     const { payload, matchedToken } =
       await this.findMatchingRefreshToken(refreshToken);
 
@@ -111,10 +135,19 @@ export class AuthService {
 
     await this.storeRefreshToken(user.id, newRefreshToken);
 
-    return {
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
-    };
+    res.cookie(
+      'access_token',
+      newAccessToken,
+      this.getCookieOptions(15 * 60 * 1000),
+    );
+
+    res.cookie(
+      'refresh_token',
+      newRefreshToken,
+      this.getCookieOptions(7 * 24 * 60 * 60 * 1000),
+    );
+
+    return { success: true };
   }
 
   private signAccessToken(user: { id: string; email: string }) {
@@ -219,5 +252,14 @@ export class AuthService {
         revokedAt: new Date(),
       },
     });
+  }
+
+  private getCookieOptions(maxAge: number) {
+    return {
+      httpOnly: true,
+      secure: false,
+      sameSite: 'lax' as const,
+      maxAge,
+    };
   }
 }
